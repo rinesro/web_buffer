@@ -1,0 +1,51 @@
+# Example Nginx config for the single-VM deployment path (docker-compose.yml).
+# Copy to /etc/nginx/sites-available/sbm-nac, adjust the domain names, then:
+#   sudo ln -s /etc/nginx/sites-available/sbm-nac /etc/nginx/sites-enabled/sbm-nac
+#   sudo nginx -t && sudo systemctl reload nginx
+#   sudo certbot --nginx -d sbm-nac.yourdomain.com -d api.sbm-nac.yourdomain.com
+#
+# Matches NEXT_PUBLIC_API_URL=https://api.sbm-nac.yourdomain.com/api/v1 in .env.docker.example.
+
+# --- Frontend (Next.js) ---
+server {
+    listen 80;
+    server_name sbm-nac.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# --- API (Express + Socket.io) ---
+server {
+    listen 80;
+    server_name api.sbm-nac.yourdomain.com;
+
+    # Plain HTTP REST traffic
+    location / {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Socket.io needs the WebSocket upgrade headers explicitly — without these, the
+    # connection silently falls back to (much slower) HTTP long-polling.
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:4000/socket.io/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+}

@@ -1,0 +1,54 @@
+# NOT part of the free deployment path — see DEPLOYMENT.md. Fly.io discontinued its free
+# allowance for new accounts in October 2024; every organization now requires a credit card
+# and is billed for usage (a minimal always-on setup like this runs roughly $2-5/month). Kept
+# here only as a low-cost paid alternative to Render, for anyone who wants to avoid Render's
+# 15-minute spin-down and doesn't mind paying a few dollars a month.
+#
+#   fly launch --no-deploy   # generates/confirms this file, creates the app
+#   fly secrets set DATABASE_URL="postgresql://...neon.tech/sbm_nac?sslmode=require" \
+#     JWT_ACCESS_SECRET=... JWT_REFRESH_SECRET=... CORS_ORIGIN=https://your-frontend.vercel.app
+#   fly deploy
+
+app = "sbm-nac-api"
+primary_region = "sin"  # Singapore — adjust to whichever region is closest to you
+
+[build]
+  dockerfile = "apps/api/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "4000"
+  JWT_ACCESS_EXPIRES_IN = "15m"
+  JWT_REFRESH_EXPIRES_IN = "7d"
+  METRIC_SAMPLE_INTERVAL_MS = "2000"
+  LOG_LEVEL = "info"
+  # DATABASE_URL is set via `fly secrets set`, not here — it's a credential, not config.
+
+[[services]]
+  internal_port = 4000
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # Socket.io holds long-lived connections open — never let Fly stop the one machine we run.
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# IMPORTANT: keep this at 1. Running more than one machine would mean multiple
+# MetricsScheduler instances writing duplicate samples, and Socket.io needs a Redis adapter
+# (not set up here) before it can fan out across more than one instance.
+[deploy]
+  strategy = "immediate"
