@@ -10,33 +10,42 @@ import { AuthService } from './application/services/AuthService';
 import { ConnectionLogService } from './application/services/ConnectionLogService';
 import { DashboardService } from './application/services/DashboardService';
 import { DeviceService } from './application/services/DeviceService';
+import { DeviceSessionService } from './application/services/DeviceSessionService';
 import { DriveFileService } from './application/services/DriveFileService';
 import { NotificationService } from './application/services/NotificationService';
 import { ServerService } from './application/services/ServerService';
 import { SettingService } from './application/services/SettingService';
 import { SystemMetricService } from './application/services/SystemMetricService';
+import { UserAuthService } from './application/services/UserAuthService';
 import { prisma } from './infrastructure/database/prisma';
 import { MetricsScheduler } from './infrastructure/metrics/metricsScheduler';
 import { createSocketGateway } from './infrastructure/metrics/socketGateway';
 import { PrismaAdminRepository } from './infrastructure/repositories/PrismaAdminRepository';
+import { PrismaBlockedFingerprintRepository } from './infrastructure/repositories/PrismaBlockedFingerprintRepository';
 import { PrismaConnectionLogRepository } from './infrastructure/repositories/PrismaConnectionLogRepository';
 import { PrismaDeviceRepository } from './infrastructure/repositories/PrismaDeviceRepository';
+import { PrismaDeviceSessionRepository } from './infrastructure/repositories/PrismaDeviceSessionRepository';
 import { PrismaDriveFileRepository } from './infrastructure/repositories/PrismaDriveFileRepository';
 import { PrismaNotificationRepository } from './infrastructure/repositories/PrismaNotificationRepository';
 import { PrismaRefreshTokenRepository } from './infrastructure/repositories/PrismaRefreshTokenRepository';
 import { PrismaServerRepository } from './infrastructure/repositories/PrismaServerRepository';
 import { PrismaSettingRepository } from './infrastructure/repositories/PrismaSettingRepository';
 import { PrismaSystemMetricRepository } from './infrastructure/repositories/PrismaSystemMetricRepository';
+import { PrismaUserRefreshTokenRepository } from './infrastructure/repositories/PrismaUserRefreshTokenRepository';
+import { PrismaUserRepository } from './infrastructure/repositories/PrismaUserRepository';
+import { SessionCleanupScheduler } from './infrastructure/sessions/sessionCleanupScheduler';
 import { AuthController } from './presentation/controllers/AuthController';
 import { ConnectionLogController } from './presentation/controllers/ConnectionLogController';
 import { DashboardController } from './presentation/controllers/DashboardController';
 import { DeviceController } from './presentation/controllers/DeviceController';
+import { DeviceSessionController } from './presentation/controllers/DeviceSessionController';
 import { DriveFileController } from './presentation/controllers/DriveFileController';
 import { NacController } from './presentation/controllers/NacController';
 import { NotificationController } from './presentation/controllers/NotificationController';
 import { ServerController } from './presentation/controllers/ServerController';
 import { SettingController } from './presentation/controllers/SettingController';
 import { SystemMetricController } from './presentation/controllers/SystemMetricController';
+import { UserAuthController } from './presentation/controllers/UserAuthController';
 import { errorHandler } from './presentation/middlewares/errorHandler';
 import { notFoundHandler } from './presentation/middlewares/notFoundHandler';
 import { apiRateLimiter } from './presentation/middlewares/rateLimiter';
@@ -44,7 +53,10 @@ import { createApiRouter, type RouteControllers } from './presentation/routes';
 import { config } from './shared/config';
 import { logger } from './shared/logger';
 
-function buildApp(controllers: RouteControllers): Express {
+function buildApp(
+  controllers: RouteControllers,
+  deviceSessionService: DeviceSessionService,
+): Express {
   const app = express();
 
   app.set('trust proxy', 1);
@@ -53,7 +65,7 @@ function buildApp(controllers: RouteControllers): Express {
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use(pinoHttp({ logger }));
-  app.use('/api/v1', apiRateLimiter, createApiRouter(controllers));
+  app.use('/api/v1', apiRateLimiter, createApiRouter(controllers, deviceSessionService));
 
   app.get('/health', (_req, res) => {
     res
@@ -70,9 +82,13 @@ function buildApp(controllers: RouteControllers): Express {
 async function bootstrap(): Promise<void> {
   const adminRepository = new PrismaAdminRepository();
   const refreshTokenRepository = new PrismaRefreshTokenRepository();
+  const userRepository = new PrismaUserRepository();
+  const userRefreshTokenRepository = new PrismaUserRefreshTokenRepository();
   const serverRepository = new PrismaServerRepository();
   const systemMetricRepository = new PrismaSystemMetricRepository();
   const deviceRepository = new PrismaDeviceRepository();
+  const deviceSessionRepository = new PrismaDeviceSessionRepository();
+  const blockedFingerprintRepository = new PrismaBlockedFingerprintRepository();
   const connectionLogRepository = new PrismaConnectionLogRepository();
   const notificationRepository = new PrismaNotificationRepository();
   const settingRepository = new PrismaSettingRepository();
@@ -85,6 +101,17 @@ async function bootstrap(): Promise<void> {
     deviceRepository,
     connectionLogRepository,
     notificationRepository,
+  );
+  const deviceSessionService = new DeviceSessionService(
+    deviceSessionRepository,
+    blockedFingerprintRepository,
+    userRepository,
+    notificationRepository,
+  );
+  const userAuthService = new UserAuthService(
+    userRepository,
+    userRefreshTokenRepository,
+    deviceSessionService,
   );
   const connectionLogService = new ConnectionLogService(connectionLogRepository);
   const notificationService = new NotificationService(notificationRepository);
@@ -99,9 +126,11 @@ async function bootstrap(): Promise<void> {
 
   const controllers: RouteControllers = {
     auth: new AuthController(authService),
+    userAuth: new UserAuthController(userAuthService),
     server: new ServerController(serverService),
     systemMetric: new SystemMetricController(systemMetricService),
     device: new DeviceController(deviceService),
+    deviceSession: new DeviceSessionController(deviceSessionService),
     connectionLog: new ConnectionLogController(connectionLogService),
     notification: new NotificationController(notificationService),
     setting: new SettingController(settingService),
@@ -110,7 +139,7 @@ async function bootstrap(): Promise<void> {
     nac: new NacController(deviceService),
   };
 
-  const app = buildApp(controllers);
+  const app = buildApp(controllers, deviceSessionService);
   const httpServer = createServer(app);
   const io = createSocketGateway(httpServer);
 
@@ -123,6 +152,9 @@ async function bootstrap(): Promise<void> {
   );
   metricsScheduler.start();
 
+  const sessionCleanupScheduler = new SessionCleanupScheduler(deviceSessionRepository);
+  sessionCleanupScheduler.start();
+
   httpServer.listen(config.port, () => {
     logger.info({ port: config.port, env: config.nodeEnv }, 'SBM-NAC API server started');
   });
@@ -130,6 +162,7 @@ async function bootstrap(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Shutting down gracefully');
     metricsScheduler.stop();
+    sessionCleanupScheduler.stop();
     httpServer.close();
     await prisma.$disconnect();
     process.exit(0);

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { ServerController } from '../controllers/ServerController';
 import type { SystemMetricController } from '../controllers/SystemMetricController';
 import { authenticate } from '../middlewares/authenticate';
+import { requireAdmin } from '../middlewares/requireAdmin';
 import { validateIdParam } from '../validators/common.validator';
 import {
   validateCreateServer,
@@ -15,6 +16,7 @@ export function createServerRoutes(
 ): Router {
   const router = Router();
   router.use(authenticate);
+  router.use(requireAdmin);
 
   router.get('/', validateServerQuery, serverController.list);
   router.post('/', validateCreateServer, serverController.create);

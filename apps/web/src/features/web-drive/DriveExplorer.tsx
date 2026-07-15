@@ -7,9 +7,16 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState, ErrorState, Spinner } from '@/components/ui/Feedback';
 import { FormField, Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '@/components/ui/Table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { useApiQuery } from '@/hooks/useApiQuery';
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient as defaultApiClient, ApiError, type ApiClientLike } from '@/lib/api-client';
 import { formatBytes, formatDateTime } from '@/lib/utils';
 import type { DriveFile } from '@/types/api';
 
@@ -18,7 +25,7 @@ interface Breadcrumb {
   name: string;
 }
 
-export function DriveExplorer() {
+export function DriveExplorer({ client = defaultApiClient }: { client?: ApiClientLike } = {}) {
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: 'Home' }]);
   const currentFolder = breadcrumbs[breadcrumbs.length - 1] ?? { id: null, name: 'Home' };
 
@@ -36,7 +43,7 @@ export function DriveExplorer() {
     isLoading,
     refetch,
   } = useApiQuery<DriveFile[]>(
-    () => apiClient.get(`/drive${currentFolder.id ? `?parentId=${currentFolder.id}` : ''}`),
+    () => client.get(`/drive${currentFolder.id ? `?parentId=${currentFolder.id}` : ''}`),
     [currentFolder.id],
   );
 
@@ -58,7 +65,7 @@ export function DriveExplorer() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await apiClient.post('/drive/folders', { name, parentId: currentFolder.id });
+      await client.post('/drive/folders', { name, parentId: currentFolder.id });
       refetch();
       closeModal();
     } catch (err) {
@@ -72,7 +79,7 @@ export function DriveExplorer() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await apiClient.post('/drive/files', {
+      await client.post('/drive/files', {
         name,
         parentId: currentFolder.id,
         sizeBytes: Math.max(0, Number(sizeKb) || 0) * 1024,
@@ -91,7 +98,7 @@ export function DriveExplorer() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await apiClient.patch(`/drive/${renameTarget.id}/rename`, { name });
+      await client.patch(`/drive/${renameTarget.id}/rename`, { name });
       refetch();
       closeModal();
     } catch (err) {
@@ -105,7 +112,7 @@ export function DriveExplorer() {
     if (!deleteTarget) return;
     setIsSubmitting(true);
     try {
-      await apiClient.delete(`/drive/${deleteTarget.id}`);
+      await client.delete(`/drive/${deleteTarget.id}`);
       setDeleteTarget(null);
       refetch();
     } catch (err) {
@@ -153,7 +160,10 @@ export function DriveExplorer() {
       ) : listError ? (
         <ErrorState message={listError} onRetry={refetch} />
       ) : !items?.length ? (
-        <EmptyState title="This folder is empty" description="Create a folder or file to get started." />
+        <EmptyState
+          title="This folder is empty"
+          description="Create a folder or file to get started."
+        />
       ) : (
         <Table>
           <TableHead>
@@ -185,7 +195,9 @@ export function DriveExplorer() {
                 <TableCell className="font-data text-muted-foreground">
                   {item.type === 'FILE' ? formatBytes(item.sizeBytes) : '—'}
                 </TableCell>
-                <TableCell className="text-muted-foreground">{formatDateTime(item.updatedAt)}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {formatDateTime(item.updatedAt)}
+                </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     <Button
@@ -219,14 +231,24 @@ export function DriveExplorer() {
       <Modal isOpen={modal === 'folder'} onClose={closeModal} title="New folder">
         <div className="space-y-4">
           <FormField label="Folder name" htmlFor="folder-name">
-            <Input id="folder-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Reports" />
+            <Input
+              id="folder-name"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Reports"
+            />
           </FormField>
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={closeModal}>
               Cancel
             </Button>
-            <Button isLoading={isSubmitting} disabled={!name} onClick={() => void handleCreateFolder()}>
+            <Button
+              isLoading={isSubmitting}
+              disabled={!name}
+              onClick={() => void handleCreateFolder()}
+            >
               Create
             </Button>
           </div>
@@ -241,7 +263,13 @@ export function DriveExplorer() {
       >
         <div className="space-y-4">
           <FormField label="File name" htmlFor="file-name">
-            <Input id="file-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="q3-report.pdf" />
+            <Input
+              id="file-name"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="q3-report.pdf"
+            />
           </FormField>
           <FormField label="Declared size (KB)" htmlFor="file-size">
             <Input
@@ -258,17 +286,30 @@ export function DriveExplorer() {
             <Button variant="outline" onClick={closeModal}>
               Cancel
             </Button>
-            <Button isLoading={isSubmitting} disabled={!name} onClick={() => void handleCreateFile()}>
+            <Button
+              isLoading={isSubmitting}
+              disabled={!name}
+              onClick={() => void handleCreateFile()}
+            >
               Create
             </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal isOpen={renameTarget !== null} onClose={closeModal} title={`Rename "${renameTarget?.name}"`}>
+      <Modal
+        isOpen={renameTarget !== null}
+        onClose={closeModal}
+        title={`Rename "${renameTarget?.name}"`}
+      >
         <div className="space-y-4">
           <FormField label="New name" htmlFor="rename-name">
-            <Input id="rename-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              id="rename-name"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </FormField>
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <div className="flex justify-end gap-2">

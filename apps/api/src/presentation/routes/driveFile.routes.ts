@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import type { DeviceSessionService } from '../../application/services/DeviceSessionService';
 import type { DriveFileController } from '../controllers/DriveFileController';
 import { authenticate } from '../middlewares/authenticate';
+import { createRequireActiveUserSession } from '../middlewares/requireActiveUserSession';
 import { validateIdParam } from '../validators/common.validator';
 import {
   validateCreateFile,
@@ -10,9 +12,15 @@ import {
   validateRenameDriveFile,
 } from '../validators/driveFile.validator';
 
-export function createDriveFileRoutes(controller: DriveFileController): Router {
+export function createDriveFileRoutes(
+  controller: DriveFileController,
+  deviceSessionService: DeviceSessionService,
+): Router {
   const router = Router();
   router.use(authenticate);
+  // Admin requests pass straight through; User requests must have an ALLOWED device session,
+  // and every request here refreshes that session's activity timestamp.
+  router.use(createRequireActiveUserSession(deviceSessionService));
 
   router.get('/', validateDriveFileQuery, controller.listChildren);
   router.post('/folders', validateCreateFolder, controller.createFolder);

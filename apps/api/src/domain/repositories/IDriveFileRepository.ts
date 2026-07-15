@@ -1,5 +1,11 @@
 import type { DriveFile } from '../entities/DriveFile';
 
+/** Every Web Drive operation is scoped to exactly one owner — either an Admin or a User. */
+export interface DriveOwner {
+  type: 'ADMIN' | 'USER';
+  id: string;
+}
+
 export interface CreateDriveFileInput {
   name: string;
   path: string;
@@ -7,14 +13,18 @@ export interface CreateDriveFileInput {
   mimeType?: string | null;
   sizeBytes?: number;
   parentId?: string | null;
-  ownerId: string;
+  owner: DriveOwner;
   isPublic?: boolean;
 }
 
 export interface IDriveFileRepository {
-  findChildren(parentId: string | null, ownerId: string): Promise<DriveFile[]>;
+  findChildren(parentId: string | null, owner: DriveOwner): Promise<DriveFile[]>;
   findById(id: string): Promise<DriveFile | null>;
-  findByParentAndName(parentId: string | null, name: string): Promise<DriveFile | null>;
+  findByParentAndName(
+    parentId: string | null,
+    name: string,
+    owner: DriveOwner,
+  ): Promise<DriveFile | null>;
   create(data: CreateDriveFileInput): Promise<DriveFile>;
   rename(id: string, name: string, path: string): Promise<DriveFile>;
   move(id: string, parentId: string | null, path: string): Promise<DriveFile>;

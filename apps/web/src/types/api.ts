@@ -74,6 +74,43 @@ export interface SystemMetric {
   createdAt: string;
 }
 
+export interface DeviceSession {
+  id: string;
+  userId: string;
+  fingerprint: string;
+  name: string;
+  deviceType: DeviceType;
+  ipAddress: string;
+  status: DeviceStatus;
+  lastActivityAt: string;
+  createdAt: string;
+}
+
+export interface DeviceSessionSummary {
+  id: string;
+  name: string;
+  deviceType: DeviceType;
+  status: DeviceStatus;
+  lastActivityAt: string;
+  userName: string;
+  userEmail: string;
+}
+
+export interface DeviceSessionDetail extends DeviceSessionSummary {
+  userId: string;
+  ipAddress: string;
+  fingerprint: string;
+  createdAt: string;
+}
+
+export interface BlockedFingerprint {
+  id: string;
+  fingerprint: string;
+  userId: string | null;
+  reason: string | null;
+  blockedAt: string;
+}
+
 export interface Device {
   id: string;
   name: string;

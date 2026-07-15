@@ -8,7 +8,8 @@ export interface DriveFile {
   mimeType: string | null;
   sizeBytes: number;
   parentId: string | null;
-  ownerId: string;
+  adminOwnerId: string | null;
+  userOwnerId: string | null;
   isPublic: boolean;
   createdAt: Date;
   updatedAt: Date;

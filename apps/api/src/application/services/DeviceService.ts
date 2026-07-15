@@ -10,11 +10,7 @@ import type { PaginatedResult, PaginationParams } from '../../domain/repositorie
 import type { IConnectionLogRepository } from '../../domain/repositories/IConnectionLogRepository';
 import type { IDeviceRepository } from '../../domain/repositories/IDeviceRepository';
 import type { INotificationRepository } from '../../domain/repositories/INotificationRepository';
-import type {
-  DeviceQueryDto,
-  RegisterDeviceDto,
-  UpdateDeviceDto,
-} from '../dto/device.dto';
+import type { DeviceQueryDto, RegisterDeviceDto, UpdateDeviceDto } from '../dto/device.dto';
 import { ConflictError, NotFoundError } from '../../shared/errors/AppError';
 
 export class DeviceService {

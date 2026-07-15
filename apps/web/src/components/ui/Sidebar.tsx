@@ -10,6 +10,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  Users,
   Wifi,
   X,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/servers', label: 'Servers', icon: Server },
   { href: '/devices', label: 'Devices', icon: Wifi },
+  { href: '/sessions', label: 'Device sessions', icon: Users },
   { href: '/connection-logs', label: 'Connection logs', icon: ScrollText },
   { href: '/notifications', label: 'Notifications', icon: Bell },
   { href: '/drive', label: 'Web Drive', icon: HardDrive },

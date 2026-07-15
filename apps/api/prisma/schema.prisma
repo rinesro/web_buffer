@@ -35,9 +35,33 @@ model Admin {
 
   refreshTokens RefreshToken[]
   notifications Notification[]
-  driveFiles    DriveFile[]
+  driveFiles    DriveFile[]     @relation("AdminDriveFiles")
 
   @@map("admins")
+}
+
+/// A self-registered end user (distinct from Admin). Users sign themselves up at /register —
+/// nobody types their details in for them — and each registration/login automatically
+/// captures a DeviceSession for whatever they connected from. Admins may also provision a
+/// User account directly (name/email/password only) for someone who can't self-register;
+/// either way, the actual device/session is only ever captured from a real login, never
+/// typed in manually. isBlocked cascades from blocking any of this user's sessions — a
+/// blocked device blocks the account, not just that one connection.
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  isBlocked    Boolean   @default(false) @map("is_blocked")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  refreshTokens UserRefreshToken[]
+  sessions      DeviceSession[]
+  driveFiles    DriveFile[]        @relation("UserDriveFiles")
+
+  @@map("users")
 }
 
 /// Rotating refresh tokens. Only a hash of the token is stored; the raw token is only ever
@@ -58,6 +82,68 @@ model RefreshToken {
   @@index([adminId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+/// Same shape and purpose as RefreshToken, scoped to User accounts instead of Admin. Kept as
+/// a separate model rather than a dual-nullable-FK on RefreshToken so the existing, working
+/// admin auth code needed zero changes when self-registration was added.
+model UserRefreshToken {
+  id                String    @id @default(cuid())
+  tokenHash         String    @unique @map("token_hash")
+  userId            String    @map("user_id")
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt         DateTime  @map("expires_at")
+  revokedAt         DateTime? @map("revoked_at")
+  replacedByTokenId String?   @map("replaced_by_token_id")
+  userAgent         String?   @map("user_agent")
+  ipAddress         String?   @map("ip_address")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_refresh_tokens")
+}
+
+/// Represents a User's device as CURRENTLY connected — this is session state, not a
+/// permanent record. A cleanup job deletes any row whose lastActivityAt is older than 30
+/// minutes (see infrastructure/sessions/sessionCleanupScheduler.ts), and the portal also
+/// deletes its own row immediately when the user explicitly disconnects from the Web Drive.
+/// The only thing about a device that outlives this row is a block — see BlockedFingerprint.
+model DeviceSession {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// A synthetic identifier standing in for a real MAC (browsers cannot expose one — see
+  /// infrastructure/auth/deviceFingerprint.ts), stable per (user, browser) pair.
+  fingerprint    String
+  name           String
+  /// DeviceType: "LAPTOP" | "DESKTOP" | "MOBILE" | "IOT" | "SERVER" | "UNKNOWN"
+  deviceType     String   @default("UNKNOWN") @map("device_type")
+  ipAddress      String   @map("ip_address")
+  /// DeviceStatus: "ALLOWED" | "BLOCKED" | "PENDING" — PENDING on every new session, even
+  /// for a fingerprint that was previously allowed; only a BLOCK is remembered permanently.
+  status         String   @default("PENDING")
+  lastActivityAt DateTime @default(now()) @map("last_activity_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([lastActivityAt])
+  @@index([fingerprint])
+  @@map("device_sessions")
+}
+
+/// The one piece of device-level information that IS kept permanently: once a fingerprint
+/// is blocked, every future session attempt from it is auto-rejected without needing an
+/// admin to block it again, and the User account it belongs to is locked out entirely
+/// (User.isBlocked), not just that one session.
+model BlockedFingerprint {
+  id          String   @id @default(cuid())
+  fingerprint String   @unique
+  userId      String?  @map("user_id")
+  reason      String?
+  blockedAt   DateTime @default(now()) @map("blocked_at")
+
+  @@map("blocked_fingerprints")
 }
 
 /// A physical or virtual host being monitored. SystemMetric rows are its live/historical
@@ -108,7 +194,9 @@ model SystemMetric {
 
 /// A registered network device, identified primarily by MAC address (the NAC unit of
 /// identity — an IP can be reassigned by DHCP, a MAC cannot without spoofing). status
-/// drives the allow/block decision enforced by the network access control layer.
+/// drives the allow/block decision enforced by the network access control layer. Unrelated
+/// to the User portal's DeviceSession below — this model is for admin-managed network
+/// hardware (servers, IoT, etc.), not user login sessions.
 model Device {
   id           String    @id @default(cuid())
   name         String
@@ -193,28 +281,36 @@ model Setting {
 /// children) from files (which have a size/mimeType). The self-relation forms the
 /// directory hierarchy; deleting a folder cascades to everything inside it.
 ///
+/// Exactly one of adminOwnerId/userOwnerId is set, never both, never neither — enforced in
+/// DriveFileService, not the database (Postgres CHECK constraints aren't modeled in Prisma
+/// without raw SQL migrations, and this project's whole read/write path already goes through
+/// one service, so the invariant has a single enforcement point regardless).
+///
 /// Note: the unique([parentId, name]) constraint does not prevent duplicate root-level
 /// names (parentId null), since SQL treats each NULL as distinct — duplicate root names
 /// are rejected at the application/service layer instead.
 model DriveFile {
-  id        String      @id @default(cuid())
-  name      String
-  path      String
+  id           String      @id @default(cuid())
+  name         String
+  path         String
   /// DriveFileType: "FILE" | "FOLDER"
-  type      String
-  mimeType  String?     @map("mime_type")
-  sizeBytes Int         @default(0) @map("size_bytes")
-  parentId  String?     @map("parent_id")
-  parent    DriveFile?  @relation("DriveFileTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children  DriveFile[] @relation("DriveFileTree")
-  ownerId   String      @map("owner_id")
-  owner     Admin       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  isPublic  Boolean     @default(false) @map("is_public")
-  createdAt DateTime    @default(now()) @map("created_at")
-  updatedAt DateTime    @updatedAt @map("updated_at")
+  type         String
+  mimeType     String?     @map("mime_type")
+  sizeBytes    Int         @default(0) @map("size_bytes")
+  parentId     String?     @map("parent_id")
+  parent       DriveFile?  @relation("DriveFileTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children     DriveFile[] @relation("DriveFileTree")
+  adminOwnerId String?     @map("admin_owner_id")
+  adminOwner   Admin?      @relation("AdminDriveFiles", fields: [adminOwnerId], references: [id], onDelete: Cascade)
+  userOwnerId  String?     @map("user_owner_id")
+  userOwner    User?       @relation("UserDriveFiles", fields: [userOwnerId], references: [id], onDelete: Cascade)
+  isPublic     Boolean     @default(false) @map("is_public")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
 
   @@index([parentId])
-  @@index([ownerId])
+  @@index([adminOwnerId])
+  @@index([userOwnerId])
   @@unique([parentId, name])
   @@map("drive_files")
 }

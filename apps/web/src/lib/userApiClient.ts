@@ -1,57 +1,40 @@
-import { useAuthStore } from '@/store/authStore';
+import { useUserAuthStore } from '@/store/userAuthStore';
 import type { ApiEnvelope } from '@/types/api';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
-
-export class ApiError extends Error {
-  readonly code: string;
-  readonly status: number;
-  readonly details?: unknown;
-
-  constructor(status: number, code: string, message: string, details?: unknown) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
+import { ApiError, API_URL } from './api-client';
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
-  /** Skip the automatic 401 -> refresh -> retry dance (used by the refresh call itself). */
   skipAuthRetry?: boolean;
 }
 
-let refreshPromise: Promise<boolean> | null = null;
+let userRefreshPromise: Promise<boolean> | null = null;
 
-/** Calls POST /auth/refresh using the httpOnly cookie; returns whether a new session was obtained. */
-async function refreshSession(): Promise<boolean> {
-  if (!refreshPromise) {
-    refreshPromise = (async () => {
+async function refreshUserSession(): Promise<boolean> {
+  if (!userRefreshPromise) {
+    userRefreshPromise = (async () => {
       try {
-        const res = await fetch(`${API_URL}/auth/refresh`, {
+        const res = await fetch(`${API_URL}/user-auth/refresh`, {
           method: 'POST',
           credentials: 'include',
         });
         if (!res.ok) return false;
         const body = (await res.json()) as ApiEnvelope<{ accessToken: string }>;
         if (!body.success) return false;
-        useAuthStore.getState().setAccessToken(body.data.accessToken);
+        useUserAuthStore.getState().setAccessToken(body.data.accessToken);
         return true;
       } catch {
         return false;
       } finally {
-        refreshPromise = null;
+        userRefreshPromise = null;
       }
     })();
   }
-  return refreshPromise;
+  return userRefreshPromise;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, skipAuthRetry, headers, ...rest } = options;
-  const accessToken = useAuthStore.getState().accessToken;
+  const accessToken = useUserAuthStore.getState().accessToken;
 
   const res = await fetch(`${API_URL}${path}`, {
     ...rest,
@@ -66,11 +49,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   if (res.status === 401 && !skipAuthRetry) {
-    const refreshed = await refreshSession();
+    const refreshed = await refreshUserSession();
     if (refreshed) {
       return request<T>(path, { ...options, skipAuthRetry: true });
     }
-    useAuthStore.getState().clearSession();
+    useUserAuthStore.getState().clearSession();
     throw new ApiError(401, 'UNAUTHORIZED', 'Session expired. Please sign in again.');
   }
 
@@ -90,7 +73,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return envelope.data;
 }
 
-export const apiClient = {
+export const userApiClient = {
   get: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { ...options, method: 'GET' }),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
@@ -103,18 +86,4 @@ export const apiClient = {
     request<T>(path, { ...options, method: 'DELETE' }),
 };
 
-export type ApiClientLike = typeof apiClient;
-
-export { refreshSession, API_URL };
-
-export function buildQuery(
-  params: Record<string, string | number | boolean | undefined | null>,
-): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue;
-    search.set(key, String(value));
-  }
-  const query = search.toString();
-  return query ? `?${query}` : '';
-}
+export { refreshUserSession };
