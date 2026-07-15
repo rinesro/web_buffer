@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens for SBM-NAC.
+ *
+ * This is an operations tool, not a marketing page, so the palette is built around
+ * legibility at data density and a semantic use of color: the cyan "signal" accent marks
+ * primary actions and the live-metric trace; success/warning/danger are reserved strictly
+ * for device/server/threshold status and never used decoratively.
+ */
+:root {
+  --background: 210 20% 98%;
+  --foreground: 215 25% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 215 25% 12%;
+
+  --border: 210 20% 88%;
+
+  --primary: 174 72% 38%;
+  --primary-foreground: 0 0% 100%;
+
+  --muted: 210 20% 94%;
+  --muted-foreground: 215 15% 40%;
+
+  --success: 158 60% 36%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 38 92% 40%;
+  --warning-foreground: 0 0% 100%;
+
+  --danger: 0 72% 51%;
+  --danger-foreground: 0 0% 100%;
+
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: 200 22% 7%;
+  --foreground: 210 15% 88%;
+
+  --card: 205 20% 10%;
+  --card-foreground: 210 15% 88%;
+
+  --border: 205 15% 18%;
+
+  --primary: 174 72% 47%;
+  --primary-foreground: 200 30% 8%;
+
+  --muted: 205 15% 16%;
+  --muted-foreground: 210 10% 62%;
+
+  --success: 158 64% 52%;
+  --success-foreground: 158 60% 10%;
+
+  --warning: 43 96% 56%;
+  --warning-foreground: 43 60% 12%;
+
+  --danger: 0 84% 65%;
+  --danger-foreground: 0 40% 12%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans), system-ui, sans-serif;
+  }
+
+  /* All measured/logged values (percentages, bytes, IPs, MAC addresses, timestamps) use the
+     monospace face so they read the way an operator actually reads them: aligned, scannable,
+     unambiguous — the same convention as htop, a switch's ARP table, or a log tail. */
+  .font-data {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
