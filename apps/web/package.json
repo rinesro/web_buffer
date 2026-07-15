@@ -3,9 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "predev": "cd ../../packages/shared-types && npm run build",
+    "predev": "npm --prefix ../../packages/shared-types run build",
     "dev": "next dev",
-    "prebuild": "cd ../../packages/shared-types && npm run build",
+    "prebuild": "npm --prefix ../../packages/shared-types run build",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
